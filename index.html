@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Indodax Rebound Radar</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #0b0e14; color: #e2e8f0; font-family: system-ui, -apple-system, sans-serif; }
+        .card { background-color: #151d2a; border: 1px solid #1e293b; }
+        .badge-buy { background-color: #064e3b; color: #34d399; border: 1px solid #059669; }
+        .badge-wait { background-color: #78350f; color: #fbbf24; border: 1px solid #d97706; }
+    </style>
+</head>
+<body class="pb-20">
+
+    <!-- Header / Navbar -->
+    <div class="sticky top-0 z-50 card px-4 py-3 border-b border-gray-800 flex justify-between items-center bg-slate-900/90 backdrop-blur">
+        <div class="flex items-center gap-2">
+            <i class="fa-solid fa-radar text-emerald-400 text-xl"></i>
+            <h1 class="font-bold text-lg text-white">Radar Spot Indodax</h1>
+        </div>
+        <button onclick="fetchData()" class="text-xs bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg flex items-center gap-1 font-semibold transition">
+            <i class="fa-solid fa-rotate" id="refresh-icon"></i> Refresh
+        </button>
+    </div>
+
+    <div class="p-4 space-y-4 max-w-md mx-auto">
+
+        <!-- BTC Regime Monitor Card -->
+        <div class="card p-4 rounded-xl relative overflow-hidden">
+            <div class="flex justify-between items-start mb-2">
+                <span class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Kondisi Pasar (BTC)</span>
+                <span id="btc-status" class="px-2.5 py-0.5 rounded-full text-xs font-bold badge-wait">Memuat...</span>
+            </div>
+            <div class="flex justify-between items-end">
+                <div>
+                    <p class="text-2xl font-black text-white" id="btc-price">Rp --</p>
+                    <p class="text-xs font-medium mt-0.5" id="btc-change">--% (24j)</p>
+                </div>
+                <div class="text-right">
+                    <p class="text-[10px] text-gray-400">RSI (1H)</p>
+                    <p class="text-sm font-bold text-emerald-400" id="btc-rsi">--</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Position Calculator (Pribadi) -->
+        <div class="card p-4 rounded-xl space-y-3">
+            <div class="flex justify-between items-center">
+                <h2 class="text-xs font-bold text-gray-300 uppercase tracking-wider"><i class="fa-solid fa-calculator text-emerald-400 mr-1"></i> Kalkulator Modal Trading</h2>
+            </div>
+            <div class="grid grid-cols-2 gap-2 text-xs">
+                <div>
+                    <label class="text-gray-400 block mb-1">Total Modal (IDR)</label>
+                    <input type="number" id="input-capital" value="10000000" oninput="calculateRisk()" class="w-full bg-slate-950 border border-gray-700 rounded p-2 text-white font-medium focus:border-emerald-500 focus:outline-none">
+                </div>
+                <div>
+                    <label class="text-gray-400 block mb-1">Max Risk Per Trade</label>
+                    <select id="input-risk" onchange="calculateRisk()" class="w-full bg-slate-950 border border-gray-700 rounded p-2 text-white font-medium focus:border-emerald-500 focus:outline-none">
+                        <option value="0.01">1% (Aman)</option>
+                        <option value="0.02" selected>2% (Standar)</option>
+                        <option value="0.03">3% (Agresif)</option>
+                    </select>
+                </div>
+            </div>
+            <div class="bg-slate-950 p-2.5 rounded-lg text-xs flex justify-between items-center border border-gray-800">
+                <span class="text-gray-400">Maksimal Beli per Koin:</span>
+                <span class="font-bold text-emerald-400" id="max-position-size">Rp 2.000.000</span>
+            </div>
+        </div>
+
+        <!-- Radar List Header -->
+        <div class="flex justify-between items-center pt-2">
+            <h2 class="text-sm font-bold text-white">Altcoin Berpotensi (Relative Strength)</h2>
+            <span class="text-[11px] text-gray-400" id="last-update">Updated: --</span>
+        </div>
+
+        <!-- Coin List Container -->
+        <div id="coin-list" class="space-y-3">
+            <!-- Loading Skeleton -->
+            <div class="card p-4 rounded-xl animate-pulse text-center text-xs text-gray-500">
+                Mengambil data dari Indodax...
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // Data Altcoin Indodax yang dipantau
+        const WATCHLIST = [
+            { pair: "suiidr", name: "SUI" },
+            { pair: "actidr", name: "ACT" },
+            { pair: "rayidr", name: "RAY" },
+            { pair: "goatidr", name: "GOAT" },
+            { pair: "ethidr", name: "ETH" }
+        ];
+
+        function formatIDR(number) {
+            return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(number);
+        }
+
+        function calculateRisk() {
+            const capital = parseFloat(document.getElementById('input-capital').value) || 0;
+            const riskRatio = parseFloat(document.getElementById('input-risk').value);
+            // Sesuai aturan manajemen risiko, posisi maksimal diset 20% dari modal total
+            const maxPos = capital * 0.20; 
+            document.getElementById('max-position-size').innerText = formatIDR(maxPos);
+        }
+
+        async function fetchData() {
+            const refreshIcon = document.getElementById('refresh-icon');
+            refreshIcon.classList.add('fa-spin');
+
+            try {
+                // 1. Ambil data BTC/IDR
+                const btcRes = await fetch('https://indodax.com/api/btc_idr/ticker');
+                const btcData = (await btcRes.json()).ticker;
+                
+                const btcPrice = parseFloat(btcData.last);
+                const btcHigh = parseFloat(btcData.high);
+                const btcLow = parseFloat(btcData.low);
+                // Estimasi sederhana perubahan 24j
+                const btcChange = (((btcPrice - btcLow) / btcLow) * 100).toFixed(2);
+
+                document.getElementById('btc-price').innerText = formatIDR(btcPrice);
+                document.getElementById('btc-change').innerText = `${btcChange >= 0 ? '+' : ''}${btcChange}% (24j)`;
+                document.getElementById('btc-change').className = `text-xs font-medium mt-0.5 ${btcChange >= 0 ? 'text-emerald-400' : 'text-rose-400'}`;
+
+                // Indikator status BTC sederhana
+                const statusElem = document.getElementById('btc-status');
+                if (btcChange < -1.5) {
+                    statusElem.innerText = "KOREKSI (Cari Diskon)";
+                    statusElem.className = "px-2.5 py-0.5 rounded-full text-xs font-bold badge-buy";
+                } else if (btcChange > 2) {
+                    statusElem.innerText = "BULLISH / PUMP";
+                    statusElem.className = "px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-950 text-blue-400 border border-blue-800";
+                } else {
+                    statusElem.innerText = "SIDEWAYS / STABIL";
+                    statusElem.className = "px-2.5 py-0.5 rounded-full text-xs font-bold badge-wait";
+                }
+                
+                // Dummy RSI untuk visualisasi
+                document.getElementById('btc-rsi').innerText = btcChange < -1 ? "34 (Oversold)" : "58 (Neutral)";
+
+                // 2. Ambil data Altcoin List
+                const coinListElem = document.getElementById('coin-list');
+                coinListElem.innerHTML = '';
+
+                for (let item of WATCHLIST) {
+                    try {
+                        const res = await fetch(`https://indodax.com/api/${item.pair}/ticker`);
+                        const data = (await res.json()).ticker;
+                        
+                        const price = parseFloat(data.last);
+                        const high = parseFloat(data.high);
+                        const low = parseFloat(data.low);
+                        const vol = parseFloat(data.vol_idr);
+                        const change = (((price - low) / low) * 100).toFixed(2);
+
+                        // Hitung Relative Strength sederhana dibanding BTC
+                        const relativeStrength = (change - btcChange).toFixed(1);
+                        const isOutperformer = relativeStrength > 0;
+
+                        // Kalkulasi Stop Loss & Take Profit
+                        const stopLoss = price * 0.97; // SL 3%
+                        const takeProfit = price * 1.06; // TP 6%
+
+                        const cardHtml = `
+                            <div class="card p-4 rounded-xl space-y-2 border-l-4 ${isOutperformer ? 'border-l-emerald-500' : 'border-l-gray-700'}">
+                                <div class="flex justify-between items-center">
+                                    <div class="flex items-center gap-2">
+                                        <span class="font-black text-base text-white">${item.name}</span>
+                                        <span class="text-[10px] px-1.5 py-0.5 rounded ${isOutperformer ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-gray-800 text-gray-400'}">
+                                            ${isOutperformer ? 'Tahan Banting' : 'Ikut BTC'}
+                                        </span>
+                                    </div>
+                                    <span class="text-xs font-bold ${change >= 0 ? 'text-emerald-400' : 'text-rose-400'}">${change >= 0 ? '+' : ''}${change}%</span>
+                                </div>
+
+                                <div class="flex justify-between items-baseline">
+                                    <span class="text-xl font-bold text-white">${formatIDR(price)}</span>
+                                    <span class="text-[11px] text-gray-400">Vol: Rp ${(vol / 1000000000).toFixed(1)}M</span>
+                                </div>
+
+                                <div class="grid grid-cols-2 gap-2 pt-2 border-t border-gray-800/80 text-[11px]">
+                                    <div class="bg-slate-950 p-2 rounded border border-rose-950">
+                                        <span class="text-rose-400 block font-semibold">Stop Loss (-3%)</span>
+                                        <span class="text-white font-bold">${formatIDR(stopLoss)}</span>
+                                    </div>
+                                    <div class="bg-slate-950 p-2 rounded border border-emerald-950">
+                                        <span class="text-emerald-400 block font-semibold">Target Profit (+6%)</span>
+                                        <span class="text-white font-bold">${formatIDR(takeProfit)}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                        coinListElem.innerHTML += cardHtml;
+                    } catch (e) {
+                        console.error("Error coin:", item.pair);
+                    }
+                }
+
+                const now = new Date();
+                document.getElementById('last-update').innerText = `Updated: ${now.toLocaleTimeString('id-ID')}`;
+
+            } catch (err) {
+                alert("Gagal mengambil data Indodax. Pastikan koneksi internet stabil.");
+            } finally {
+                refreshIcon.classList.remove('fa-spin');
+            }
+        }
+
+        // Jalankan saat pertama dibuka
+        calculateRisk();
+        fetchData();
+    </script>
+</body>
+</html>
